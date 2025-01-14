@@ -21,5 +21,13 @@ Cargo.lock
 #.idea/
 
 # Added by cargo
-
 /target
+
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
+/app/out/
+/app/build/
+/app/dist/
+/app/.env*.local
