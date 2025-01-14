@@ -42,6 +42,8 @@ async fn main() {
     let mut args = env::args().skip(1);
     let mut db_path = None;
     let mut access_token = None;
+    let mut port = None;
+    let mut allow_cors = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -51,22 +53,30 @@ async fn main() {
             "--access_token" => {
                 access_token = args.next();
             }
+            "--port" => {
+                port = args.next().and_then(|p| p.parse::<u16>().ok());
+            }
+            "--allow-cors" => {
+                allow_cors = true;
+            }
             _ => {
-                eprintln!("Usage: {} --db <database_path> --access_token <token>", env::args().next().unwrap());
+                eprintln!("Usage: {} --db <database_path> --access_token <token> --port <port> [--allow-cors]", env::args().next().unwrap());
                 std::process::exit(1);
             }
         }
     }
 
     let db_path = db_path.unwrap_or_else(|| {
-        eprintln!("Usage: {} --db <database_path> --access_token <token>", env::args().next().unwrap());
+        eprintln!("Usage: {} --db <database_path> --access_token <token> --port <port> [--allow-cors]", env::args().next().unwrap());
         std::process::exit(1);
     });
 
     let access_token = access_token.unwrap_or_else(|| {
-        eprintln!("Usage: {} --db <database_path> --access_token <token>", env::args().next().unwrap());
+        eprintln!("Usage: {} --db <database_path> --access_token <token> --port <port> [--allow-cors]", env::args().next().unwrap());
         std::process::exit(1);
     });
+
+    let port = port.unwrap_or(3000);
 
     let store = SqliteStore::new(&db_path).expect("Failed to create database");
     let state = AppState {
@@ -74,14 +84,19 @@ async fn main() {
         access_token,
     };
     
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/hits", get(get_hits))
         .route("/add_result", post(add_result))
         .with_state(state);
 
-    println!("Server running on http://localhost:3000");
+    if allow_cors {
+        use tower_http::cors::CorsLayer;
+        app = app.layer(CorsLayer::permissive());
+    }
+
+    println!("Server running on http://localhost:{}", port);
     
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    axum::Server::bind(&format!("0.0.0.0:{}", port).parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
@@ -144,17 +159,23 @@ mod tests {
     #[tokio::test]
     async fn test_add_result_endpoint() {
         // Create test hit data for multiple dates and states
-        let dates = vec![
-            chrono::Local::now().date_naive(),
-            chrono::Local::now().date_naive() - chrono::Duration::days(1),
-            chrono::Local::now().date_naive() - chrono::Duration::days(2),
-        ];
+        let mut dates = Vec::with_capacity(100);
+        let today = chrono::Local::now().date_naive();
+        for i in 0..100 {
+            dates.push(today - chrono::Duration::days(i));
+        }
 
         let states = vec![
             ("CA", 42),
-            ("NY", 27),
+            ("NY", 27), 
             ("TX", 35),
             ("FL", 31),
+            ("WA", 25),
+            ("IL", 38),
+            ("MA", 29),
+            ("VA", 33),
+            ("OR", 22),
+            ("CO", 28)
         ];
 
         for date in dates {
@@ -171,7 +192,7 @@ mod tests {
                 // Send request to local server
                 let client = reqwest::Client::new();
                 let response = client
-                    .post("http://localhost:3000/add_result")
+                    .post("http://localhost:8080/add_result")
                     .header("Authorization", "Bearer test_token")
                     .json(&hit)
                     .send()
