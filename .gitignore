@@ -31,3 +31,4 @@ node_modules/
 /app/build/
 /app/dist/
 /app/.env*.local
+.env

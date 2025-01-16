@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -19,13 +19,20 @@ interface HitData {
   }
 }
 
+const CACHE_KEY = 'dei-tracker-data';
+const CACHE_TIMESTAMP_KEY = 'dei-tracker-timestamp';
+const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+
 export default function Home() {
-  const [selectedState, setSelectedState] = useState('all');
+  const [selectedStates, setSelectedStates] = useState<string[]>(['all']);
   const [data, setData] = useState<HitData[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   
-  const states = ['all', 'NY', 'WA', 'FL', 'CO', 'VA', 'OR', 'CA', 'IL', 'MA', 'TX'];
+  const states = ['all', 'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming'];
 
   useEffect(() => {
     // Set default dates to last 100 days
@@ -35,6 +42,31 @@ export default function Home() {
     
     setStartDate(start.toISOString().split('T')[0]);
     setEndDate(end.toISOString().split('T')[0]);
+
+    // Load cached data if available
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    
+    if (cachedData && cachedTimestamp) {
+      const timestamp = parseInt(cachedTimestamp);
+      if (Date.now() - timestamp < CACHE_DURATION) {
+        setData(JSON.parse(cachedData));
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   useEffect(() => {
@@ -43,110 +75,227 @@ export default function Home() {
       
       try {
         const response = await fetch(
-          `http://localhost:8080/hits?start-date=${startDate}&end-date=${endDate}`
+          `https://api.pagin.org/hits?start-date=${startDate}&end-date=${endDate}`
         );
         const jsonData = await response.json();
         setData(jsonData);
+        setIsLoading(false);
+        
+        // Cache the new data
+        localStorage.setItem(CACHE_KEY, JSON.stringify(jsonData));
+        localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
       } catch (error) {
         console.error('Error fetching data:', error);
+        setIsLoading(false);
       }
     };
 
     fetchData();
   }, [startDate, endDate]);
+
+  const handleStateChange = (state: string) => {
+    setSelectedStates(prev => {
+      if (state === 'all') {
+        return ['all'];
+      }
+      
+      const newStates = prev.filter(s => s !== 'all');
+      if (newStates.includes(state)) {
+        return newStates.filter(s => s !== state);
+      } else {
+        return [...newStates, state];
+      }
+    });
+  };
+
+  const resetStates = () => {
+    setSelectedStates(['all']);
+    setIsDropdownOpen(false);
+  };
   
-  const chartData = data.map(item => ({
-    date: item.date,
-    hits: selectedState === 'all' ? item.total_hits : item.by_states[selectedState]
-  }));
+  const chartData = data.map(item => {
+    const dataPoint: { [key: string]: any } = {
+      date: item.date
+    };
+    
+    if (selectedStates.includes('all')) {
+      dataPoint.total = item.total_hits;
+    } else {
+      selectedStates.forEach(state => {
+        dataPoint[state] = item.by_states[state] || 0;
+      });
+    }
+    
+    return dataPoint;
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white text-gray-800 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Hit Statistics Dashboard</h1>
+        <h1 className="text-4xl md:text-5xl font-bold mb-4 text-center bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+          DEI Tracker
+        </h1>
+        <p className="text-gray-600 text-center mb-8 text-lg">
+          This dashboard tracks the number of LinkedIn profiles containing DEI (Diversity, Equity, and Inclusion) 
+          keywords in their descriptions across different states in the United States. The data helps visualize 
+          the geographic distribution and trends of DEI professionals over time.
+        </p>
         
-        <div className="mb-6 flex gap-4 items-center">
-          <div>
-            <label className="mr-2">Start Date:</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="border rounded p-2"
-            />
-          </div>
-          
-          <div>
-            <label className="mr-2">End Date:</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="border rounded p-2"
-            />
+        <div className="mb-6 flex flex-col md:flex-row gap-4 items-start md:items-center">
+          <div className="w-full md:w-auto flex flex-col gap-4 md:flex-row">
+            <div className="flex-1">
+              <label className="block mb-2 text-gray-700">Start Date:</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full md:w-auto border border-gray-300 bg-white rounded p-2 text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div className="flex-1">
+              <label className="block mb-2 text-gray-700">End Date:</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full md:w-auto border border-gray-300 bg-white rounded p-2 text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="mr-2">Filter by State:</label>
-            <select 
-              value={selectedState}
-              onChange={(e) => setSelectedState(e.target.value)}
-              className="border rounded p-2"
+          <div className="relative w-full md:w-auto" ref={dropdownRef}>
+            <label className="block mb-2 text-gray-700">States:</label>
+            <button 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full md:w-auto border border-gray-300 rounded p-2 bg-white hover:bg-gray-50 flex items-center justify-between gap-2 text-gray-700"
             >
-              {states.map(state => (
-                <option key={state} value={state}>
-                  {state === 'all' ? 'All States' : state}
-                </option>
-              ))}
-            </select>
+              <span>States: {selectedStates.includes('all') ? 'All' : selectedStates.length}</span>
+              <span className="text-xs">▼</span>
+            </button>
+            
+            {isDropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full md:w-64 bg-white border border-gray-300 rounded shadow-lg">
+                <div className="p-2 border-b border-gray-200 flex justify-between items-center">
+                  <span className="font-semibold text-gray-700">Select States</span>
+                  <button 
+                    onClick={resetStates}
+                    className="text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="max-h-60 overflow-y-auto p-2">
+                  {states.map(state => (
+                    <div key={state} className="flex items-center gap-2 py-1">
+                      <input
+                        type="checkbox"
+                        id={state}
+                        checked={selectedStates.includes(state)}
+                        onChange={() => handleStateChange(state)}
+                        className="accent-blue-500"
+                      />
+                      <label htmlFor={state} className="text-gray-700 hover:text-gray-900">
+                        {state === 'all' ? 'All States' : state}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-xl font-semibold mb-4">
-            {selectedState === 'all' ? 'Total Hits' : `Hits for ${selectedState}`} Over Time
+        <div className="bg-white p-6 rounded-lg shadow-lg border border-gray-200">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            Hits Over Time
           </h2>
           
           <div className="h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis 
                   dataKey="date" 
                   angle={-45}
                   textAnchor="end"
                   height={70}
+                  stroke="#374151"
                 />
-                <YAxis />
-                <Tooltip />
+                <YAxis stroke="#374151" />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px'
+                  }}
+                  labelStyle={{ color: '#374151' }}
+                />
                 <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="hits" 
-                  stroke="#8884d8" 
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                />
+                {selectedStates.includes('all') ? (
+                  <Line
+                    type="monotone"
+                    dataKey="total"
+                    name="All States"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: '#2563eb' }}
+                  />
+                ) : (
+                  selectedStates.map((state, index) => (
+                    <Line
+                      key={state}
+                      type="monotone"
+                      dataKey={state}
+                      stroke={`hsl(${(index * 137.5) % 360}, 70%, 45%)`}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                    />
+                  ))
+                )}
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="mt-8 bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-xl font-semibold mb-4 text-center">Data Table</h2>
+        <div className="mt-8 bg-white p-6 rounded-lg shadow-lg border border-gray-200">
+          <h2 className="text-xl font-semibold mb-4 text-center text-gray-800">Data Table</h2>
           <div className="overflow-x-auto">
             <table className="min-w-full table-auto">
               <thead>
-                <tr className="bg-gray-100">
-                  <th className="px-4 py-2 text-center">Date</th>
-                  <th className="px-4 py-2 text-center">Hits</th>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-2 text-center text-gray-700">Date</th>
+                  {selectedStates.includes('all') ? (
+                    <th className="px-4 py-2 text-center text-gray-700">Total Hits</th>
+                  ) : (
+                    selectedStates.map(state => (
+                      <th key={state} className="px-4 py-2 text-center text-gray-700">{state}</th>
+                    ))
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {chartData.map((row, index) => (
-                  <tr key={index} className="border-b">
-                    <td className="px-4 py-2 text-center">{row.date}</td>
-                    <td className="px-4 py-2 text-center">{row.hits}</td>
+                  <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2 text-center text-gray-600">{row.date}</td>
+                    {selectedStates.includes('all') ? (
+                      <td className="px-4 py-2 text-center text-gray-600">{row.total}</td>
+                    ) : (
+                      selectedStates.map(state => (
+                        <td key={state} className="px-4 py-2 text-center text-gray-600">{row[state]}</td>
+                      ))
+                    )}
                   </tr>
                 ))}
               </tbody>
