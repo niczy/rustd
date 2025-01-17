@@ -8,7 +8,10 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
 interface HitData {
@@ -28,6 +31,7 @@ export default function Home() {
   const [data, setData] = useState<HitData[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [pieDate, setPieDate] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -42,6 +46,7 @@ export default function Home() {
     
     setStartDate(start.toISOString().split('T')[0]);
     setEndDate(end.toISOString().split('T')[0]);
+    setPieDate(end.toISOString().split('T')[0]);
 
     // Load cached data if available
     const cachedData = localStorage.getItem(CACHE_KEY);
@@ -79,6 +84,19 @@ export default function Home() {
         );
         const jsonData = await response.json();
         setData(jsonData);
+        
+        // Update dates based on response
+        if (jsonData.length > 0) {
+          const dates: string[] = jsonData.map((item: { date: string }) => item.date);
+          const minDate = dates.reduce((a: string, b: string) => a < b ? a : b);
+          const maxDate = dates.reduce((a: string, b: string) => a > b ? a : b);
+          setStartDate(minDate);
+          setEndDate(maxDate);
+          // Update pieDate to be within the new date range
+          if (pieDate < minDate || pieDate > maxDate) {
+            setPieDate(maxDate);
+          }
+        }
         setIsLoading(false);
         
         // Cache the new data
@@ -112,9 +130,9 @@ export default function Home() {
     setSelectedStates(['all']);
     setIsDropdownOpen(false);
   };
-  
+
   const chartData = data.map(item => {
-    const dataPoint: { [key: string]: any } = {
+    const dataPoint: Record<string, number | string> = {
       date: item.date
     };
     
@@ -128,6 +146,28 @@ export default function Home() {
     
     return dataPoint;
   });
+
+  const getPieChartData = () => {
+    if (!pieDate) return [];
+    
+    const selectedData = data.find(item => item.date === pieDate);
+    if (!selectedData) return [];
+    
+    if (selectedStates.includes('all')) {
+      return Object.entries(selectedData.by_states).map(([state, value]) => ({
+        name: state,
+        value
+      }));
+    }
+    
+    return selectedStates.map(state => ({
+      name: state,
+      value: selectedData.by_states[state] || 0
+    }));
+  };
+
+  const pieData = getPieChartData();
+  const totalPieValue = pieData.reduce((sum, entry) => sum + entry.value, 0);
 
   if (isLoading) {
     return (
@@ -217,7 +257,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-lg border border-gray-200">
+        <div className="bg-white p-6 rounded-lg shadow-lg border border-gray-200 mb-8">
           <h2 className="text-xl font-semibold mb-4 text-gray-800">
             Hits Over Time
           </h2>
@@ -269,37 +309,59 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="mt-8 bg-white p-6 rounded-lg shadow-lg border border-gray-200">
-          <h2 className="text-xl font-semibold mb-4 text-center text-gray-800">Data Table</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full table-auto">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-4 py-2 text-center text-gray-700">Date</th>
-                  {selectedStates.includes('all') ? (
-                    <th className="px-4 py-2 text-center text-gray-700">Total Hits</th>
-                  ) : (
-                    selectedStates.map(state => (
-                      <th key={state} className="px-4 py-2 text-center text-gray-700">{state}</th>
-                    ))
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {chartData.map((row, index) => (
-                  <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-2 text-center text-gray-600">{row.date}</td>
-                    {selectedStates.includes('all') ? (
-                      <td className="px-4 py-2 text-center text-gray-600">{row.total}</td>
-                    ) : (
-                      selectedStates.map(state => (
-                        <td key={state} className="px-4 py-2 text-center text-gray-600">{row[state]}</td>
-                      ))
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="bg-white p-6 rounded-lg shadow-lg border border-gray-200">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            State Distribution
+          </h2>
+          <div className="mb-4">
+            <label className="block mb-2 text-gray-700">Select Date:</label>
+            <input
+              type="date"
+              value={pieDate}
+              min={startDate}
+              max={endDate}
+              onChange={(e) => {
+                const selectedDate = e.target.value;
+                if (selectedDate >= startDate && selectedDate <= endDate) {
+                  setPieDate(selectedDate);
+                }
+              }}
+              className="w-full md:w-auto border border-gray-300 bg-white rounded p-2 text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div className="h-[900px] md:h-[600px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart margin={{ top: 20 }}>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ percent, name }) => 
+                    percent > 0.05 ? `${name}: ${(percent * 100).toFixed(2)}%` : null
+                  }
+                  outerRadius={150}
+                  fill="#8884d8"
+                  dataKey="value"
+                  isAnimationActive={false}
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`}
+                      fill={`hsl(${(index * 137.5) % 360}, 70%, 45%)`}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value: number, name: string) => [
+                    `${name}: ${((value / totalPieValue) * 100).toFixed(2)}%`,
+                    `Value: ${value}`
+                  ]}
+                  active={true}
+                />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
