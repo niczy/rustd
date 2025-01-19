@@ -190,53 +190,61 @@ async def scrape_state(context: BrowserContext, state: dict) -> StateHitResult:
     result = StateHitResult(state=state["state"], hit=num_results, date=datetime.now().strftime("%Y-%m-%d"))
     return result
 
-async def run(state_filter: str | None = None):
-    browser = Browser()
-    async with await browser.new_context() as context:
-        await login(context)
-        results: list[StateHitResult] = []
+async def run(context: BrowserContext, state_filter: str | None = None):
+    await login(context)
+    results: list[StateHitResult] = []
+    
+    # Filter states if state_filter is provided
+    states_to_process = states
+    if state_filter:
+        states_to_process = [s for s in states if s['state'].lower() == state_filter.lower()]
+        if not states_to_process:
+            logger.warning(f"No matching state found for filter: {state_filter}")
+            return
         
-        # Filter states if state_filter is provided
-        states_to_process = states
-        if state_filter:
-            states_to_process = [s for s in states if s['state'].lower() == state_filter.lower()]
-            if not states_to_process:
-                logger.warning(f"No matching state found for filter: {state_filter}")
-                return
-            
-        for state in states_to_process:
-            result = await scrape_state(context, state)
-            results.append(result)
-            try:
-                post_hit_result(result)
-            except Exception:
-                logger.exception("Failed to post hit result")
-            await asyncio.sleep(20)
-        
-        logger.info(f'final results are {results}')
+    debug = False 
+    for state in states_to_process:
+        result = await scrape_state(context, state)
+        results.append(result)
+        try:
+            post_hit_result(result)
+        except Exception:
+            logger.exception("Failed to post hit result")
+        if debug:
+            break
+        await asyncio.sleep(20)
 
-if __name__ == "__main__":
+async def main():
     import argparse
     parser = argparse.ArgumentParser(description="LinkedIn DEI Scraper")
     parser.add_argument('--state', type=str, help='Process specific state only')
     args = parser.parse_args()
     
     logger.info("Starting LinkedIn scraping process")
-    while True:
-        try:
-            logger.info("Beginning new scraping run")
-            asyncio.run(run(args.state))
-            logger.info("Completed scraping run successfully")
-            
-            sleep_duration = 12 * 60 * 60  # 10 hours in seconds
-            logger.info(f"Sleeping for {sleep_duration/3600:.1f} hours before next run")
-            time.sleep(sleep_duration)
+    browser = Browser()
+    
+    async with await browser.new_context() as context:
+        while True:
+            try:
+                logger.info("Beginning new scraping run")
+                await run(context, args.state)
+                logger.info("Completed scraping run successfully")
                 
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt, shutting down gracefully")
-            break
-        except Exception as e:
-            logger.error(f"Fatal error in main loop: {str(e)}")
-            logger.exception("Full exception details:")
-            logger.info("Sleeping for 30 minutes before retrying")
-            time.sleep(30 * 60)  # 30 minutes in seconds
+                sleep_duration = 12 * 60 * 60  # 12 hours in seconds
+                logger.info(f"Sleeping for {sleep_duration/3600:.1f} hours before next run")
+                await asyncio.sleep(sleep_duration)
+                    
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt, shutting down gracefully")
+                break
+            except Exception as e:
+                logger.error(f"Fatal error in main loop: {str(e)}")
+                logger.exception("Full exception details:")
+                logger.info("Sleeping for 30 minutes before retrying")
+                await asyncio.sleep(30 * 60)  # 30 minutes in seconds
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Program terminated by user")
