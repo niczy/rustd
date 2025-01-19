@@ -1,6 +1,5 @@
-'use server'
-
 import DEIPage from './dei';
+export const dynamic = 'force-dynamic'; // Ensure this page is not statically generated
 
 async function getData() {
   const end = new Date();
@@ -12,7 +11,7 @@ async function getData() {
 
   try {
     const response = await fetch(
-      `https://api.pagin.org/hits?start-date=${startDate}&end-date=${endDate}`
+      `https://api.pagin.org/hits?start-date=${startDate}&end-date=${endDate}`,
     );
     const jsonData = await response.json();
     
@@ -24,6 +23,11 @@ async function getData() {
       finalStartDate = dates.reduce((a: string, b: string) => a < b ? a : b);
       finalEndDate = dates.reduce((a: string, b: string) => a > b ? a : b);
     }
+
+    console.log('Initial startDate:', startDate);
+    console.log('Initial endDate:', endDate);
+    console.log('Final startDate:', finalStartDate);
+    console.log('Final endDate:', finalEndDate);
 
     return {
       data: jsonData,
